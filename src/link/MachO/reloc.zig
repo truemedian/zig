@@ -19,7 +19,8 @@ pub const Relocation = struct {
     pub const Type = enum {
         branch,
         unsigned,
-        load,
+        page,
+        page_off,
     };
 
     pub const Info = struct {
@@ -56,19 +57,18 @@ pub const Relocation = struct {
         pub const base_type: Relocation.Type = .unsigned;
     };
 
-    pub const Load = struct {
-        base: Relocation = Relocation{ .@"type" = Type.load },
-        kind: Kind,
-        page_op: ?Info = null,
-        page_off_op: ?Info = null,
+    pub const Page = struct {
+        base: Relocation = Relocation{ .@"type" = Type.page },
+        info: Info,
 
-        pub const base_type: Relocation.Type = .load;
+        pub const base_type: Relocation.Type = .page;
+    };
 
-        pub const Kind = enum {
-            page_off,
-            page,
-            page_off_page,
-        };
+    pub const PageOff = struct {
+        base: Relocation = Relocation{ .@"type" = Type.page_off },
+        info: Info,
+
+        pub const base_type: Relocation.Type = .page_off;
     };
 };
 
@@ -144,8 +144,11 @@ const Parser = struct {
                 .ARM64_RELOC_ADDEND => {
                     try parser.parseAddend(reloc);
                 },
-                .ARM64_RELOC_PAGE21, .ARM64_RELOC_PAGEOFF12 => {
-                    try parser.parseLoad(reloc);
+                .ARM64_RELOC_PAGE21 => {
+                    try parser.parsePage(reloc);
+                },
+                .ARM64_RELOC_PAGEOFF12 => {
+                    try parser.parsePageOff(reloc);
                 },
                 else => {},
             }
@@ -205,41 +208,56 @@ const Parser = struct {
         try parser.parsed.append(&branch.base);
     }
 
-    fn parseLoad(parser: *Parser, reloc: macho.relocation_info) !void {
-        const reloc_type = @intToEnum(macho.reloc_type_arm64, reloc.r_type);
-        assert(reloc_type == .ARM64_RELOC_PAGEOFF12 or reloc_type == .ARM64_RELOC_PAGE21);
-
-        // TODO find if we can combine the relocs together
-
-        var load = try parser.allocator.create(Relocation.Load);
-        errdefer parser.allocator.destroy(load);
-
-        const kind: Relocation.Load.Kind = if (reloc_type == .ARM64_RELOC_PAGEOFF12) .page_off else .page;
-        const target = Relocation.Info.Target.from_reloc(reloc);
-
-        load.* = .{
-            .kind = kind,
-        };
-
-        if (reloc_type == .ARM64_RELOC_PAGEOFF12) {
-            load.page_off_op = .{
-                .offset = reloc.r_address,
-                .target = target,
-                .addend = parser.addend,
-            };
-        } else {
-            load.page_op = .{
-                .offset = reloc.r_address,
-                .target = target,
-                .addend = parser.addend,
-            };
+    fn parsePage(parser: *Parser, reloc: macho.relocation_info) !void {
+        defer {
+            // Reset parser's addend state
+            parser.addend = null;
         }
 
-        // Reset parser's addend state
-        parser.addend = null;
+        const reloc_type = @intToEnum(macho.reloc_type_arm64, reloc.r_type);
+        assert(reloc_type == .ARM64_RELOC_PAGE21);
 
-        log.warn("    | emitting {}", .{load});
-        try parser.parsed.append(&load.base);
+        const target = Relocation.Info.Target.from_reloc(reloc);
+
+        var page = try parser.allocator.create(Relocation.Page);
+        errdefer parser.allocator.destroy(page);
+
+        page.* = .{
+            .info = .{
+                .offset = reloc.r_address,
+                .target = target,
+                .addend = parser.addend,
+            },
+        };
+
+        log.warn("    | emitting {}", .{page});
+        try parser.parsed.append(&page.base);
+    }
+
+    fn parsePageOff(parser: *Parser, reloc: macho.relocation_info) !void {
+        defer {
+            // Reset parser's addend state
+            parser.addend = null;
+        }
+
+        const reloc_type = @intToEnum(macho.reloc_type_arm64, reloc.r_type);
+        assert(reloc_type == .ARM64_RELOC_PAGEOFF12);
+
+        const target = Relocation.Info.Target.from_reloc(reloc);
+
+        var page_off = try parser.allocator.create(Relocation.PageOff);
+        errdefer parser.allocator.destroy(page_off);
+
+        page_off.* = .{
+            .info = .{
+                .offset = reloc.r_address,
+                .target = target,
+                .addend = parser.addend,
+            },
+        };
+
+        log.warn("    | emitting {}", .{page_off});
+        try parser.parsed.append(&page_off.base);
     }
 
     fn parseSubtractor(parser: *Parser, reloc: macho.relocation_info) !void {
@@ -268,6 +286,11 @@ const Parser = struct {
     }
 
     fn parseUnsigned(parser: *Parser, reloc: macho.relocation_info) !void {
+        defer {
+            // Reset parser's subtractor state
+            parser.subtractor = null;
+        }
+
         const reloc_type = @intToEnum(macho.reloc_type_arm64, reloc.r_type);
         assert(reloc_type == .ARM64_RELOC_UNSIGNED);
         assert(reloc.r_pcrel == 0);
@@ -284,9 +307,6 @@ const Parser = struct {
             },
             .subtractor = parser.subtractor,
         };
-
-        // Reset parser's subtractor state
-        parser.subtractor = null;
 
         log.warn("    | emitting {}", .{unsigned});
         try parser.parsed.append(&unsigned.base);
