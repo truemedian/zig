@@ -498,7 +498,7 @@ pub fn read(fd: fd_t, buf: []u8) std.posix.ReadError!usize {
                 }) |key| {
                     if (key.unicode_char != 0) {
                         // this definitely isn't the right way to handle this, and it may fail on towards the limit of a single utf16 item.
-                        index += std.unicode.utf16leToUtf8(buf, &.{key.unicode_char}) catch continue;
+                        index += std.unicode.utf16leToUtf8(buf[index..], &.{key.unicode_char}) catch continue;
                     }
                 }
             }
@@ -693,7 +693,7 @@ pub fn write(fd: fd_t, buf: []const u8) std.posix.WriteError!usize {
             var index: usize = 0;
             var utf16: [256]u16 = undefined;
             while (iter.nextCodepoint()) |rune| {
-                if (index + 1 >= utf16.len) {
+                if (index + 2 >= utf16.len) {
                     utf16[index] = 0;
                     p.outputString(utf16[0..index :0]) catch |err| switch (err) {
                         error.DeviceError => return error.InputOutput,
