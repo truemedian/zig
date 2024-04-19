@@ -505,6 +505,8 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
 pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
     if (native_os == .windows) {
         return resolveWindows(allocator, paths);
+    } else if (native_os == .uefi) {
+        return resolveUefi(allocator, paths);
     } else {
         return resolvePosix(allocator, paths);
     }
