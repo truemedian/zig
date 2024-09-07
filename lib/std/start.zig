@@ -201,7 +201,7 @@ fn wasi_start() callconv(.C) void {
     }
 }
 
-fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
+fn EfiMain(handle: uefi.bits.Handle, system_table: *uefi.SystemTable) callconv(uefi.bits.EFIAPI) usize {
     uefi.handle = handle;
     uefi.system_table = system_table;
 

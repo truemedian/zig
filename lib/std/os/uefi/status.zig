@@ -1,204 +1,314 @@
-const testing = @import("std").testing;
-
-const high_bit = 1 << @typeInfo(usize).int.bits - 1;
-
+const high_bit = 1 << (@typeInfo(usize).int.bits - 1);
 pub const Status = enum(usize) {
     /// The operation completed successfully.
-    Success = 0,
+    success = 0,
 
-    /// The image failed to load.
-    LoadError = high_bit | 1,
-
-    /// A parameter was incorrect.
-    InvalidParameter = high_bit | 2,
-
-    /// The operation is not supported.
-    Unsupported = high_bit | 3,
-
-    /// The buffer was not the proper size for the request.
-    BadBufferSize = high_bit | 4,
-
-    /// The buffer is not large enough to hold the requested data. The required buffer size is returned in the appropriate parameter when this error occurs.
-    BufferTooSmall = high_bit | 5,
-
-    /// There is no data pending upon return.
-    NotReady = high_bit | 6,
-
-    /// The physical device reported an error while attempting the operation.
-    DeviceError = high_bit | 7,
-
-    /// The device cannot be written to.
-    WriteProtected = high_bit | 8,
-
-    /// A resource has run out.
-    OutOfResources = high_bit | 9,
-
-    /// An inconstancy was detected on the file system causing the operating to fail.
-    VolumeCorrupted = high_bit | 10,
-
-    /// There is no more space on the file system.
-    VolumeFull = high_bit | 11,
-
-    /// The device does not contain any medium to perform the operation.
-    NoMedia = high_bit | 12,
-
-    /// The medium in the device has changed since the last access.
-    MediaChanged = high_bit | 13,
-
-    /// The item was not found.
-    NotFound = high_bit | 14,
-
-    /// Access was denied.
-    AccessDenied = high_bit | 15,
-
-    /// The server was not found or did not respond to the request.
-    NoResponse = high_bit | 16,
-
-    /// A mapping to a device does not exist.
-    NoMapping = high_bit | 17,
-
-    /// The timeout time expired.
-    Timeout = high_bit | 18,
-
-    /// The protocol has not been started.
-    NotStarted = high_bit | 19,
-
-    /// The protocol has already been started.
-    AlreadyStarted = high_bit | 20,
-
-    /// The operation was aborted.
-    Aborted = high_bit | 21,
-
-    /// An ICMP error occurred during the network operation.
-    IcmpError = high_bit | 22,
-
-    /// A TFTP error occurred during the network operation.
-    TftpError = high_bit | 23,
-
-    /// A protocol error occurred during the network operation.
-    ProtocolError = high_bit | 24,
-
-    /// The function encountered an internal version that was incompatible with a version requested by the caller.
-    IncompatibleVersion = high_bit | 25,
-
-    /// The function was not performed due to a security violation.
-    SecurityViolation = high_bit | 26,
-
-    /// A CRC error was detected.
-    CrcError = high_bit | 27,
-
-    /// Beginning or end of media was reached
-    EndOfMedia = high_bit | 28,
-
-    /// The end of the file was reached.
-    EndOfFile = high_bit | 31,
-
-    /// The language specified was invalid.
-    InvalidLanguage = high_bit | 32,
-
-    /// The security status of the data is unknown or compromised and the data must be updated or replaced to restore a valid security status.
-    CompromisedData = high_bit | 33,
-
-    /// There is an address conflict address allocation
-    IpAddressConflict = high_bit | 34,
-
-    /// A HTTP error occurred during the network operation.
-    HttpError = high_bit | 35,
-
-    NetworkUnreachable = high_bit | 100,
-
-    HostUnreachable = high_bit | 101,
-
-    ProtocolUnreachable = high_bit | 102,
-
-    PortUnreachable = high_bit | 103,
-
-    ConnectionFin = high_bit | 104,
-
-    ConnectionReset = high_bit | 105,
-
-    ConnectionRefused = high_bit | 106,
-
-    /// The string contained one or more characters that the device could not render and were skipped.
-    WarnUnknownGlyph = 1,
+    /// The string contained one or more characters that the device could not
+    /// render and were skipped.
+    warn_unknown_glyph = 1,
 
     /// The handle was closed, but the file was not deleted.
-    WarnDeleteFailure = 2,
+    warn_delete_failure = 2,
 
     /// The handle was closed, but the data to the file was not flushed properly.
-    WarnWriteFailure = 3,
+    warn_write_failure = 3,
 
-    /// The resulting buffer was too small, and the data was truncated to the buffer size.
-    WarnBufferTooSmall = 4,
+    /// The resulting buffer was too small, and the data was truncated to the
+    /// buffer size.
+    warn_buffer_too_small = 4,
 
-    /// The data has not been updated within the timeframe set by localpolicy for this type of data.
-    WarnStaleData = 5,
+    /// The data has not been updated within the timeframe set by local policy
+    /// for this type of data.
+    warn_stale_data = 5,
 
-    /// The resulting buffer contains UEFI-compliant file system.
-    WarnFileSystem = 6,
+    /// The resulting buffer contains a UEFI-compliant file system.
+    warn_file_system = 6,
 
     /// The operation will be processed across a system reset.
-    WarnResetRequired = 7,
+    warn_reset_required = 7,
 
-    _,
+    /// The image failed to load.
+    load_error = high_bit | 1,
 
-    pub const EfiError = error{
-        LoadError,
-        InvalidParameter,
-        Unsupported,
-        BadBufferSize,
-        BufferTooSmall,
-        NotReady,
-        DeviceError,
-        WriteProtected,
-        OutOfResources,
-        VolumeCorrupted,
-        VolumeFull,
-        NoMedia,
-        MediaChanged,
-        NotFound,
-        AccessDenied,
-        NoResponse,
-        NoMapping,
-        Timeout,
-        NotStarted,
-        AlreadyStarted,
-        Aborted,
-        IcmpError,
-        TftpError,
-        ProtocolError,
-        IncompatibleVersion,
-        SecurityViolation,
-        CrcError,
-        EndOfMedia,
-        EndOfFile,
-        InvalidLanguage,
-        CompromisedData,
-        IpAddressConflict,
-        HttpError,
-        NetworkUnreachable,
-        HostUnreachable,
-        ProtocolUnreachable,
-        PortUnreachable,
-        ConnectionFin,
-        ConnectionReset,
-        ConnectionRefused,
-    };
+    /// A parameter was incorrect.
+    invalid_parameter = high_bit | 2,
 
-    pub fn err(self: Status) EfiError!void {
-        inline for (@typeInfo(EfiError).error_set.?) |efi_err| {
-            if (self == @field(Status, efi_err.name)) {
-                return @field(EfiError, efi_err.name);
-            }
-        }
-        // self is .Success or Warning
+    /// The operation is not supported.
+    unsupported = high_bit | 3,
+
+    /// The buffer was not the proper size for the request.
+    bad_buffer_size = high_bit | 4,
+
+    /// The buffer is not large enough to hold the requested data. The
+    /// required buffer size is returned in the appropriate parameter when
+    /// this error occurs.
+    buffer_too_small = high_bit | 5,
+
+    /// There is no data pending upon return.
+    not_ready = high_bit | 6,
+
+    /// The physical device reported an error while attempting the operation.
+    device_error = high_bit | 7,
+
+    /// The device cannot be written to.
+    write_protected = high_bit | 8,
+
+    /// A resource has run out.
+    out_of_resources = high_bit | 9,
+
+    /// An inconstancy was detected on the file system causing the
+    /// operation to fail.
+    volume_corrupted = high_bit | 10,
+
+    /// There is no more space on the file system.
+    volume_full = high_bit | 11,
+
+    /// The device does not contain any medium to perform the operation.
+    no_media = high_bit | 12,
+
+    /// The medium in the device has changed since the last access.
+    media_changed = high_bit | 13,
+
+    /// The item was not found.
+    not_found = high_bit | 14,
+
+    /// Access was denied.
+    access_denied = high_bit | 15,
+
+    /// The server was not found or did not respond to the request.
+    no_response = high_bit | 16,
+
+    /// A mapping to a device does not exist.
+    no_mapping = high_bit | 17,
+
+    /// The timeout time expired.
+    timeout = high_bit | 18,
+
+    /// The protocol has not been started.
+    not_started = high_bit | 19,
+
+    /// The protocol has already been started.
+    already_started = high_bit | 20,
+
+    /// The operation was aborted.
+    aborted = high_bit | 21,
+
+    /// An ICMP error occurred during the network operation.
+    icmp_error = high_bit | 22,
+
+    /// A TFTP error occurred during the network operation.
+    tftp_error = high_bit | 23,
+
+    /// A protocol error occurred during the network operation.
+    protocol_error = high_bit | 24,
+
+    /// The function encountered an internal version that was incompatible with
+    /// a version requested by the caller.
+    incompatible_version = high_bit | 25,
+
+    /// The function was not performed due to a security violation.
+    security_violation = high_bit | 26,
+
+    /// A CRC error was detected.
+    crc_error = high_bit | 27,
+
+    /// Beginning or end of media was reached.
+    end_of_media = high_bit | 28,
+
+    /// The end of the file was reached.
+    end_of_file = high_bit | 31,
+
+    /// The language specified was invalid.
+    invalid_language = high_bit | 32,
+
+    /// The security status of the data is unknown or compromised and the data
+    /// must be updated or replaced to restore a valid security status.
+    compromised_data = high_bit | 33,
+
+    /// There is an address conflict address allocation.
+    ip_address_conflict = high_bit | 34,
+
+    /// A HTTP error occurred during the network operation.
+    http_error = high_bit | 35,
+
+    pub fn isWarning(status: Status) bool {
+        return @intFromEnum(status) & high_bit == 0 and status != Status.success;
     }
+
+    test isWarning {
+        try std.testing.expect(!Status.isWarning(Status.success));
+        try std.testing.expect(Status.isWarning(Status.warn_buffer_too_small));
+        try std.testing.expect(!Status.isWarning(Status.timeout));
+    }
+
+    pub fn isFailure(status: Status) bool {
+        return @intFromEnum(status) & high_bit != 0;
+    }
+
+    test isFailure {
+        try std.testing.expect(!Status.isFailure(Status.success));
+        try std.testing.expect(!Status.isFailure(Status.warn_buffer_too_small));
+        try std.testing.expect(Status.isFailure(Status.timeout));
+    }
+
+    /// Converts a UEFI status code into a representative zig error, or does
+    /// nothing if the status code does not represent a failure.
+    pub fn fail(status: Status) Error!void {
+        switch (status) {
+            .load_error => return error.LoadError,
+            .invalid_parameter => return error.InvalidParameter,
+            .unsupported => return error.Unsupported,
+            .bad_buffer_size => return error.BadBufferSize,
+            .buffer_too_small => return error.BufferTooSmall,
+            .not_ready => return error.NotReady,
+            .device_error => return error.DeviceError,
+            .write_protected => return error.WriteProtected,
+            .out_of_resources => return error.OutOfResources,
+            .volume_corrupted => return error.VolumeCorrupted,
+            .volume_full => return error.VolumeFull,
+            .no_media => return error.NoMedia,
+            .media_changed => return error.MediaChanged,
+            .not_found => return error.NotFound,
+            .access_denied => return error.AccessDenied,
+            .no_response => return error.NoResponse,
+            .no_mapping => return error.NoMapping,
+            .timeout => return error.Timeout,
+            .not_started => return error.NotStarted,
+            .already_started => return error.AlreadyStarted,
+            .aborted => return error.Aborted,
+            .icmp_error => return error.IcmpError,
+            .tftp_error => return error.TftpError,
+            .protocol_error => return error.ProtocolError,
+            .incompatible_version => return error.IncompatibleVersion,
+            .security_violation => return error.SecurityViolation,
+            .crc_error => return error.CrcError,
+            .end_of_media => return error.EndOfMedia,
+            .end_of_file => return error.EndOfFile,
+            .invalid_language => return error.InvalidLanguage,
+            .compromised_data => return error.CompromisedData,
+            .ip_address_conflict => return error.IpAddressConflict,
+            .http_error => return error.HttpError,
+            else => {},
+        }
+    }
+
+    test fail {
+        try std.testing.expectError(error.LoadError, Status.load_error.fail());
+        try Status.success.fail();
+        try Status.warn_stale_data.fail();
+    }
+
+    pub const Error = error{
+        /// The image failed to load.
+        LoadError,
+
+        /// A parameter was incorrect.
+        InvalidParameter,
+
+        /// The operation is not supported.
+        Unsupported,
+
+        /// The buffer was not the proper size for the request.
+        BadBufferSize,
+
+        /// The buffer is not large enough to hold the requested data. The
+        /// required buffer size is returned in the appropriate parameter when
+        /// this error occurs.
+        BufferTooSmall,
+
+        /// There is no data pending upon return.
+        NotReady,
+
+        /// The physical device reported an error while attempting the operation.
+        DeviceError,
+
+        /// The device cannot be written to.
+        WriteProtected,
+
+        /// A resource has run out.
+        OutOfResources,
+
+        /// An inconstancy was detected on the file system causing the
+        /// operation to fail.
+        VolumeCorrupted,
+
+        /// There is no more space on the file system.
+        VolumeFull,
+
+        /// The device does not contain any medium to perform the operation.
+        NoMedia,
+
+        /// The medium in the device has changed since the last access.
+        MediaChanged,
+
+        /// The item was not found.
+        NotFound,
+
+        /// Access was denied.
+        AccessDenied,
+
+        /// The server was not found or did not respond to the request.
+        NoResponse,
+
+        /// A mapping to a device does not exist.
+        NoMapping,
+
+        /// The timeout time expired.
+        Timeout,
+
+        /// The protocol has not been started.
+        NotStarted,
+
+        /// The protocol has already been started.
+        AlreadyStarted,
+
+        /// The operation was aborted.
+        Aborted,
+
+        /// An ICMP error occurred during the network operation.
+        IcmpError,
+
+        /// A TFTP error occurred during the network operation.
+        TftpError,
+
+        /// A protocol error occurred during the network operation.
+        ProtocolError,
+
+        /// The function encountered an internal version that was incompatible with
+        /// a version requested by the caller.
+        IncompatibleVersion,
+
+        /// The function was not performed due to a security violation.
+        SecurityViolation,
+
+        /// A CRC error was detected.
+        CrcError,
+
+        /// Beginning or end of media was reached.
+        EndOfMedia,
+
+        /// The end of the file was reached.
+        EndOfFile,
+
+        /// The language specified was invalid.
+        InvalidLanguage,
+
+        /// The security status of the data is unknown or compromised and the data
+        /// must be updated or replaced to restore a valid security status.
+        CompromisedData,
+
+        /// There is an address conflict address allocation.
+        IpAddressConflict,
+
+        /// A HTTP error occurred during the network operation.
+        HttpError,
+    };
 };
 
-test "status" {
-    var st: Status = .DeviceError;
-    try testing.expectError(error.DeviceError, st.err());
-
-    st = .Success;
-    try st.err();
+test Status {
+    try std.testing.expectEqual(0, @intFromEnum(Status.success));
+    try std.testing.expectEqual(7, @intFromEnum(Status.warn_reset_required));
+    try std.testing.expectEqual(high_bit | 35, @intFromEnum(Status.http_error));
 }
+
+const std = @import("../../std.zig");
