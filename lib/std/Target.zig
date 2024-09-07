@@ -1977,7 +1977,7 @@ pub fn stackAlignment(target: Target) u16 {
         .riscv32,
         .riscv64,
         => if (!Target.riscv.featureSetHas(target.cpu.features, .e)) return 16,
-        .x86 => if (target.os.tag != .windows and target.os.tag != .uefi) return 16,
+        .x86 => if (target.os.tag != .windows) return 16,
         .x86_64 => return if (target.os.tag == .elfiamcu) 4 else 16,
         else => {},
     }
