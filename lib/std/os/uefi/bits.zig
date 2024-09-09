@@ -152,11 +152,11 @@ pub const MemoryDescriptor = extern struct {
         specific_purpose: bool,
 
         /// The memory region is capable of being protected with the CPU's
-        /// memory cryptographic capabilities. 
+        /// memory cryptographic capabilities.
         supports_crypto: bool,
-        
+
         _pad2: u24 = 0,
-        
+
         /// When `memory_isa_valid` is set, this field contains ISA specific
         /// cacheability attributes not covered above.
         memory_isa: u16,

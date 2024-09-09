@@ -219,7 +219,14 @@ pub const BootServices = extern struct {
         ) callconv(bits.EFIAPI) void,
 
         // UEFI 2.0+
-        CreateEventEx: *const fn () callconv(bits.EFIAPI) bits.Status,
+        CreateEventEx: *const fn (
+            type: bits.EventType,
+            notify_tpl: bits.TaskPriorityLevel,
+            notify_function: ?*const bits.EventNotifyFunction,
+            notify_context: ?*const anyopaque,
+            event_group: ?*const bits.Guid,
+            event: *bits.Event,
+        ) callconv(bits.EFIAPI) bits.Status,
 
         pub const OpenProtocolAttributes = enum(u32) {
             by_handle_protocol = 0x00000001,
