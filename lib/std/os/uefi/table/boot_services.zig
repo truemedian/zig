@@ -19,7 +19,7 @@ pub const BootServices = extern struct {
         ) callconv(bits.EFIAPI) bits.Status,
         GetMemoryMap: *const fn (
             memory_map_size: *usize,
-            memory_map: *align(@alignOf(bits.MemoryDescriptor)) anyopaque,
+            memory_map: [*]align(@alignOf(bits.MemoryDescriptor)) u8,
             map_key: *MemoryMapKey,
             descriptor_size: *usize,
             descriptor_version: *u32,
@@ -47,7 +47,7 @@ pub const BootServices = extern struct {
         ) callconv(bits.EFIAPI) bits.Status,
         WaitForEvent: *const fn (
             number_of_events: usize,
-            event: [*]const ?bits.Event,
+            event: [*]const bits.Event,
             index: *usize,
         ) callconv(bits.EFIAPI) bits.Status,
         SignalEvent: *const fn (
@@ -250,6 +250,46 @@ pub const BootServices = extern struct {
         exact_address: bits.PhysicalAddress,
     };
 
+    pub const MemoryMap = struct {
+        /// Resize the memory map buffer to the last requested size.
+        pub fn resize(
+            map: *MemoryMap,
+            /// The allocator that was used to allocate the buffer.
+            allocator: std.mem.Allocator,
+        ) !void {
+            map.buffer = try allocator.realloc(map.buffer, map.requested_size);
+        }
+
+        /// Frees all memory associated with the memory map.
+        pub fn deinit(
+            map: *MemoryMap,
+            allocator: std.mem.Allocator,
+        ) void {
+            allocator.free(map.buffer);
+            map.* = undefined;
+        }
+
+        pub const init = MemoryMap{
+            .buffer = &.{},
+            .key = undefined,
+            .descriptor_size = 0,
+            .descriptor_version = 0,
+            .requested_size = 0,
+        };
+
+        buffer: []align(@alignOf(bits.MemoryDescriptor)) u8,
+
+        /// An opaque value that the firmware uses to track changes to the map.
+        key: MemoryMapKey,
+        /// The size of each memory descriptor in the map.
+        descriptor_size: usize,
+        /// The version of the memory descriptor structure.
+        descriptor_version: u32,
+
+        /// The last requested size of the memory map buffer.
+        requested_size: usize,
+    };
+
     header: Header,
     interface: Interface,
 
@@ -262,6 +302,7 @@ pub const BootServices = extern struct {
     /// The event handle may no longer be used after this function is called.
     pub fn closeEvent(
         boot_services: *const BootServices,
+        /// The event handle to close.
         event: bits.Event,
     ) void {
         // only documented status returned is .success
@@ -278,6 +319,7 @@ pub const BootServices = extern struct {
     /// event group, then all events in the group will be signaled as above.
     pub fn signalEvent(
         boot_services: *const BootServices,
+        /// The event handle to signal.
         event: bits.Event,
     ) void {
         // only documented status returned is .success
@@ -306,7 +348,8 @@ pub const BootServices = extern struct {
     /// event is cleared.
     pub fn waitForEvents(
         boot_services: *const BootServices,
-        events: [:null]const ?bits.Event,
+        /// The list of events to wait for
+        events: []const bits.Event,
     ) !usize {
         assert(events.len > 0); // must provide at least one event
 
@@ -332,6 +375,7 @@ pub const BootServices = extern struct {
     /// cleared.
     pub fn checkEvent(
         boot_services: *const BootServices,
+        /// The event handle to check.
         event: bits.Event,
     ) !bool {
         const status = boot_services.interface.CheckEvent(event);
@@ -342,12 +386,22 @@ pub const BootServices = extern struct {
         }
     }
 
+    test "check and signal event" {
+        const boot_services = std.os.uefi.system_table.boot_services;
+        const event = try boot_services.createEvent();
+        assert(!try boot_services.checkEvent(event));
+        boot_services.signalEvent(event);
+        assert(try boot_services.checkEvent(event));
+    }
+
     /// Sets the timer event to trigger at the specified time.
     ///
     /// Any previous timer event will be canceled.
     pub fn setTimer(
         boot_services: *const BootServices,
+        /// The event that is to be signaled when the timer expires.
         event: bits.Event,
+        /// The type of timer and time at which to trigger the event.
         delay: TimerKind,
     ) !void {
         const trigger_time = switch (delay) {
@@ -361,10 +415,11 @@ pub const BootServices = extern struct {
 
     /// Raises a task's priority level and returns its previous level.
     ///
-    /// The TPL provided **must** be lower than or equal to the current TPL,
+    /// The TPL provided **must** be greater than or equal to the current TPL,
     /// otherwise the system may exhibit indeterminate behavior.
     pub fn raiseTpl(
         boot_services: *const BootServices,
+        /// The new priority level to raise to.
         new_tpl: bits.TaskPriorityLevel,
     ) bits.TaskPriorityLevel {
         return boot_services.interface.RaiseTPL(new_tpl);
@@ -372,13 +427,20 @@ pub const BootServices = extern struct {
 
     /// Restores a task's priority level to its previous value.
     ///
-    /// The TPL provided **must** be higher than or equal to the current TPL,
+    /// The TPL provided **must** be less than or equal to the current TPL,
     /// otherwise the system may exhibit indeterminate behavior.
     pub fn restoreTpl(
         boot_services: *const BootServices,
+        /// The previous priority level to restore to.
         old_tpl: bits.TaskPriorityLevel,
     ) void {
         boot_services.interface.RestoreTPL(old_tpl);
+    }
+
+    test "raise and restore TPL" {
+        const boot_services = std.os.uefi.system_table.boot_services;
+        const old_tpl = boot_services.raiseTpl(.notify);
+        boot_services.restoreTpl(old_tpl);
     }
 
     /// Allocates memory pages from the system. The requested chunk of memory
@@ -393,12 +455,15 @@ pub const BootServices = extern struct {
     /// UEFI Runtime Service Drivers **must** allocate memory of type
     /// `.runtime_services_data` (although such allocations must be made during
     /// boot services time).
-    /// 
+    ///
     /// Should be freed with `freePages`.
     pub fn allocatePages(
         boot_services: *const BootServices,
+        /// How the memory should be allocated.
         allocate_type: AllocateType,
+        /// The type of memory to allocate.
         memory_type: bits.MemoryType,
+        /// The number of 4096 byte pages to allocate.
         pages: usize,
     ) ![]align(4096) u8 {
         assert(memory_type != .persistent and memory_type != .unaccepted); // these are not allowed
@@ -420,15 +485,60 @@ pub const BootServices = extern struct {
     /// returned to the system's memory map.
     pub fn freePages(
         boot_services: *const BootServices,
+        /// The memory to free. Must have been allocated with `allocatePages`.
         memory: []align(4096) u8,
     ) void {
         const num_pages = @divExact(memory.len, 4096);
-        try boot_services.interface.FreePages(@intFromPtr(memory), num_pages).fail();
+        assert(boot_services.interface.FreePages(@intFromPtr(memory), num_pages) == .success); // if this fails, then the memory was likely not allocated with allocatePages
     }
 
-    pub fn getMemoryMap() void {}
+    test "allocate and free pages" {
+        const boot_services = std.os.uefi.system_table.boot_services;
+        const memory = try boot_services.allocatePages(.any, .loader_data, 1);
+        boot_services.freePages(memory);
+    }
 
-    /// Allocates memory from the firmware's memory pool. 
+    /// Returns the current memory map. The MemoryMap struct must be initialized
+    /// with `MemoryMap.init` before calling this function.
+    ///
+    /// This function will return `true` if the buffer was too small to hold the
+    /// memory map. In this case, you **must** call `MemoryMap.resize` and then
+    /// call this function again.
+    pub fn getMemoryMap(
+        boot_services: *const BootServices,
+        /// The memory map to fill.
+        map: *MemoryMap,
+    ) !true {
+        var memory_map_size: usize = map.buffer.len;
+        const status = boot_services.interface.GetMemoryMap(
+            &memory_map_size,
+            map.buffer.ptr,
+            &map.key,
+            &map.descriptor_size,
+            &map.descriptor_version,
+        );
+        assert(map.descriptor_version == 1); // the only version supported
+
+        map.requested_size = memory_map_size;
+        switch (status) {
+            .success => return false,
+            .buffer_too_small => return true,
+            else => |s| return s.fail(),
+        }
+        try status.fail();
+    }
+
+    test getMemoryMap {
+        const boot_services = std.os.uefi.system_table.boot_services;
+        var map: BootServices.MemoryMap = .init;
+        defer map.deinit(std.testing.allocator);
+
+        while (try boot_services.getMemoryMap(&map)) {
+            try map.resize(std.testing.allocator);
+        }
+    }
+
+    /// Allocates memory from the firmware's memory pool.
     ///
     /// In general, UEFI OS loaders and UEFI applications should allocate memory
     /// of type `.loader_data`.
@@ -439,11 +549,13 @@ pub const BootServices = extern struct {
     /// UEFI Runtime Service Drivers **must** allocate memory of type
     /// `.runtime_services_data` (although such allocations must be made during
     /// boot services time).
-    /// 
+    ///
     /// Should be freed with `freePool`.
     pub fn allocatePool(
         boot_services: *const BootServices,
+        /// The type of memory to allocate.
         pool_type: bits.MemoryType,
+        /// The number of bytes to allocate.
         size: usize,
     ) ![]align(8) u8 {
         var buffer: [*]align(8) u8 = undefined;
@@ -455,9 +567,83 @@ pub const BootServices = extern struct {
     /// the firmware's memory pool.
     pub fn freePool(
         boot_services: *const BootServices,
+        /// The memory to free. Must have been allocated with `allocatePool`.
         buffer: []align(8) u8,
     ) void {
-        try boot_services.interface.FreePool(buffer.ptr).fail();
+        assert(boot_services.interface.FreePool(buffer.ptr) == .success); // if this fails, then the memory was likely not allocated with allocatePool
+    }
+
+    test "allocate and free pool" {
+        const boot_services = std.os.uefi.system_table.boot_services;
+        const memory = try boot_services.allocatePool(.loader_data, 1);
+        boot_services.freePool(memory);
+    }
+
+    //
+    //
+    //
+    // TODO Protocol Handler Services
+    //
+    //
+    //
+
+    /// Loads an EFI image into memory. The image can be loaded from a device
+    /// path or from a buffer in memory. **Either** `source_buffer` or
+    /// `device_path` **must** be provided. If both are provided, then
+    /// `source_buffer` is used and `device_path` is informative but may still
+    /// be used to perform security policy decisions.
+    pub fn loadImage(
+        boot_services: *const BootServices,
+        /// If `true`, this request originates from a boot manager and that the
+        /// boot manager is attempting to load `device_path` as a boot
+        /// selection. Ignored if `source_buffer` is provided.
+        is_boot_policy: bool,
+        /// The handle of the image that is loading the new image.
+        parent_image: bits.Handle,
+        /// A pointer to the memory location containing a copy of the image to
+        /// be loaded. If `null`, then the image is loaded from the device path.
+        source_buffer: ?[]const u8,
+        /// A device handle specific path to the image to load.
+        device_path: ?*const protocol.DevicePath,
+    ) !bits.Handle {
+        var image_handle: bits.Handle = undefined;
+        const source_ptr: ?[*]const u8, const source_size: usize = if (source_buffer) |buf|
+            .{ buf.ptr, buf.len }
+        else
+            .{ null, 0 };
+
+        try boot_services.interface.LoadImage(is_boot_policy, parent_image, device_path, source_ptr, source_size, &image_handle).fail();
+        return image_handle;
+    }
+
+    /// Transfers control to a loaded image's entry point. An image may only be
+    /// started once.
+    ///
+    /// Control returns to this function after the image returns or calls
+    /// `BootServices.exit()`. If the image exits, any exit data is returned in
+    /// the `exit_data` parameter.
+    pub fn startImage(
+        boot_services: *const BootServices,
+        /// The handle of the image to start.
+        image_handle: bits.Handle,
+        /// Pointer to a slice that will be populated with the exit data. If the
+        /// value is `null` then exit data will be ignored.
+        exit_data: ?*[]const u16,
+    ) bits.Status {
+        if (exit_data) |data| {
+            return boot_services.interface.StartImage(image_handle, &data.len, &data.ptr);
+        } else {
+            return boot_services.interface.StartImage(image_handle, null, null);
+        }
+    }
+
+    /// Unloads an image.
+    pub fn unloadImage(
+        boot_services: *const BootServices,
+        /// The handle of the image to unload.
+        image_handle: bits.Handle,
+    ) !void {
+        try boot_services.interface.UnloadImage(image_handle).fail();
     }
 };
 
