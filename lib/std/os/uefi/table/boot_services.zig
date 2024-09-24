@@ -228,6 +228,16 @@ pub const BootServices = extern struct {
             event: *bits.Event,
         ) callconv(bits.EFIAPI) bits.Status,
 
+        pub const EventType = packed struct(u32) {
+            pad1: u8 = 0,
+            notify_wait: bool = false,
+            notify_signal: bool = false,
+            pad2: u19 = 0,
+            runtime_context: bool = false,
+            runtime: bool = false,
+            timer: bool = false,
+        };
+
         pub const OpenProtocolAttributes = enum(u32) {
             by_handle_protocol = 0x00000001,
             get_protocol = 0x00000002,
@@ -237,6 +247,56 @@ pub const BootServices = extern struct {
             exclusive = 0x00000020,
             exclusive_by_driver = 0x00000030, // exclusive | by_driver
         };
+    };
+
+    pub const EventNotify = struct {
+        tpl: bits.TaskPriorityLevel,
+        function: bits.EventNotifyFunction,
+        context: ?*const anyopaque,
+    };
+
+    pub const EventGroup = struct {
+        guid: *const bits.Guid,
+
+        /// Notified by the system when `ExitBootServices()` is called. These are invoked after
+        /// all `.before_exit_boot_services` events.
+        ///
+        /// The notification function must not depend on timer events because the system firmware
+        /// will have disabled timer services before any `.exit_boot_services` events are
+        /// dispatched.
+        ///
+        /// The notification function must not use memory allocation services because these may
+        /// modify the current memory map. Because the consumer of any service cannot know if
+        /// any given service may allocate memory, the notification function must not use any
+        /// external services outside of their own implementation to avoid modifying the memory map.
+        pub const exit_boot_services: EventGroup = .{ .guid = &bits.Guid.parse("27abf055-b1b8-4c26-8048-748f37baa2df") };
+
+        /// Notified by the system when `ExitBootServices()` is called. This present the last
+        /// opportunity to use firmware interfaces in the boot environment.
+        ///
+        /// The notification function must not depend on any form of delayed processing such as
+        /// timers because the system firmware disables timer services immediately after
+        /// dispatching all `.before_exit_boot_services` events.
+        pub const before_exit_boot_services: EventGroup = .{ .guid = &bits.Guid.parse("8be0e274-3970-4b44-80c5-1ab9502f3bfc") };
+
+        /// Notified by the system when `SetVirtualAddressMap()` is called.
+        pub const virtual_address_change: EventGroup = .{ .guid = &bits.Guid.parse("13fa7698-c831-49c7-87ea-8f43fcc25196") };
+
+        /// Notified by the system when the memory map changes. The notification function shall
+        /// not use any memory allocation services to avoid re-entrancy issues.
+        pub const memory_map_change: EventGroup = .{ .guid = &bits.Guid.parse("78bee926-692f-48fd-9edb-01422ef0d7ab") };
+
+        /// Notified by the system when the Boot Manager is about to load and execute a boot option.
+        pub const ready_to_boot: EventGroup = .{ .guid = &bits.Guid.parse("7ce88fb3-4bd7-4679-87a8-a8d8dee50d2b") };
+
+        /// Notified by the system immediately after all `.ready_to_boot` events. This is the last
+        /// chance to modify the device or system configurations before passing control to the
+        /// boot option.
+        pub const after_ready_to_boot: EventGroup = .{ .guid = &bits.Guid.parse("3a2a00ad-98b9-4cdf-a478-702777f1c10b") };
+
+        /// Notified by the system when `ExitBootServices()` has *not* been called and
+        /// `ResetSystem()` has been invoked and the system is about to reset.
+        pub const reset_system: EventGroup = .{ .guid = &bits.Guid.parse("62da6a56-13fb-485a-a8da-a3dd7912cb6b") };
     };
 
     pub const TimerKind = union(bits.TimerDelay) {
@@ -300,7 +360,40 @@ pub const BootServices = extern struct {
     header: Header,
     interface: Interface,
 
-    pub fn createEvent() void {}
+    pub fn createEvent(
+        boot_services: *const BootServices,
+        kind: Interface.EventType,
+        notify: ?EventNotify,
+        group: ?EventGroup,
+    ) !bits.Event {
+        assert(!(kind.notify_signal and kind.notify_wait)); // notify_signal and notify_wait are mutually exclusive
+
+        var event: bits.Event = undefined;
+        const group_guid: ?*const bits.Guid = if (group) |grp| grp.guid else null;
+
+        if (notify) |notif| {
+            try boot_services.interface.CreateEventEx(
+                kind,
+                notif.tpl,
+                notif.function,
+                notif.context,
+                group_guid,
+                &event,
+            ).fail();
+        } else {
+            assert(!(kind.notify_signal or kind.notify_wait)); // must provide a notification function for these types
+            try boot_services.interface.CreateEventEx(
+                kind,
+                .application,
+                null,
+                null,
+                group_guid,
+                &event,
+            ).fail();
+        }
+
+        return event;
+    }
 
     /// Removes the given event handle from all event groups it belongs to, and
     /// then closes the event handle. Will remove any associated notifications
@@ -614,12 +707,11 @@ pub const BootServices = extern struct {
         device_path: ?*const protocol.DevicePath,
     ) !bits.Handle {
         var image_handle: bits.Handle = undefined;
-        const source_ptr: ?[*]const u8, const source_size: usize = if (source_buffer) |buf|
-            .{ buf.ptr, buf.len }
-        else
-            .{ null, 0 };
-
-        try boot_services.interface.LoadImage(is_boot_policy, parent_image, device_path, source_ptr, source_size, &image_handle).fail();
+        if (source_buffer) |source| {
+            try boot_services.interface.LoadImage(is_boot_policy, parent_image, device_path, source.ptr, source.len, &image_handle).fail();
+        } else {
+            try boot_services.interface.LoadImage(is_boot_policy, parent_image, device_path, null, 0, &image_handle).fail();
+        }
         return image_handle;
     }
 
@@ -627,8 +719,8 @@ pub const BootServices = extern struct {
     /// started once.
     ///
     /// Control returns to this function after the image returns or calls
-    /// `BootServices.exit()`. If the image exits, any exit data is returned in
-    /// the `exit_data` parameter.
+    /// `Exit()`. If the image exits, any exit data is returned in the
+    /// `exit_data` parameter.
     pub fn startImage(
         boot_services: *const BootServices,
         /// The handle of the image to start.
@@ -651,6 +743,49 @@ pub const BootServices = extern struct {
         image_handle: bits.Handle,
     ) !void {
         try boot_services.interface.UnloadImage(image_handle).fail();
+    }
+
+    /// Terminates a loaded EFI application and returns control to the boot
+    /// services.
+    ///
+    /// A EFI driver must free all resources allocated by the driver if the
+    /// status code indcates an error. A successful status code indicates that
+    /// the driver has successfully completed its initialization and is ready
+    /// to accept requests.
+    ///
+    /// It is valid to call `exit` on an image that was loaded by `loadImage`
+    /// and has not been started by `startImage`. Otherwise the `image_handle`
+    /// must be the handle of the image that is calling `exit`.
+    pub fn exit(
+        boot_services: *const BootServices,
+        /// The handle of the image to exit.
+        image_handle: bits.Handle,
+        /// The exit code for the image.
+        exit_status: bits.Status,
+        /// The exit data to return to the parent image. Must have been allocated by
+        /// `allocatePool`.
+        exit_data: ?[]const u16,
+    ) !void {
+        if (exit_data) |data| {
+            try boot_services.interface.Exit(image_handle, exit_status, data.len, data.ptr).fail();
+        } else {
+            try boot_services.interface.Exit(image_handle, exit_status, 0, null).fail();
+        }
+    }
+
+    /// Terminates all boot services. On success, the caller is now responsible
+    /// for the continued operation of the system.
+    /// 
+    /// Calling any non-runtime service after this function will likely result
+    /// in a system crash.
+    pub fn exitBootServices(
+        boot_services: *const BootServices,
+        /// The handle of the image that is exiting boot services.
+        image_handle: bits.Handle,
+        /// The key returned by `getMemoryMap`.
+        map_key: MemoryMapKey,
+    ) !void {
+        try boot_services.interface.ExitBootServices(image_handle, map_key).fail();
     }
 };
 

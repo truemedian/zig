@@ -11,31 +11,108 @@ pub const EFIAPI: std.builtin.CallingConvention = switch (builtin.target.cpu.arc
 };
 
 pub const Guid = extern struct {
-    data1: u32,
-    data2: u16,
-    data3: u16,
-    data4: [8]u8,
+    time_low: u32,
+    time_mid: u16,
+    time_high_and_version: u16,
+    clock_seq_high_and_reserved: u8,
+    clock_seq_low: u8,
+    node: [6]u8,
+
+    pub fn parse(comptime str: *const [36]u8) Guid {
+        if (str[8] != '-' or str[13] != '-' or str[18] != '-' or str[23] != '-') unreachable;
+        const time_low = std.fmt.parseUnsigned(u32, str[0..8], 16) catch unreachable;
+        const time_mid = std.fmt.parseUnsigned(u16, str[9..13], 16) catch unreachable;
+        const time_high_and_version = std.fmt.parseUnsigned(u16, str[14..18], 16) catch unreachable;
+        const clock_seq_high_and_reserved = std.fmt.parseUnsigned(u8, str[19..21], 16) catch unreachable;
+        const clock_seq_low = std.fmt.parseUnsigned(u8, str[21..23], 16) catch unreachable;
+        var node = [_]u8{ 0, 0, 0, 0, 0, 0 };
+        for (&node, 0..) |*c, i| {
+            c.* = std.fmt.parseUnsigned(u8, str[24 + 2 * i ..][0..2], 16) catch unreachable;
+        }
+
+        return Guid{
+            .time_low = time_low,
+            .time_mid = time_mid,
+            .time_high_and_version = time_high_and_version,
+            .clock_seq_high_and_reserved = clock_seq_high_and_reserved,
+            .clock_seq_low = clock_seq_low,
+            .node = node,
+        };
+    }
 
     pub fn format(guid: Guid, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
         if (comptime std.mem.eql(u8, fmt, "x") or fmt.len == 0) {
-            try writer.print("{x:0>8}-{x:0>4}-{x:0>4}-{}", .{
-                guid.data1,
-                guid.data2,
-                guid.data3,
-                std.fmt.fmtSliceHexLower(guid.data4),
+            try writer.print("{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{:0>12}", .{
+                guid.time_low,
+                guid.time_mid,
+                guid.time_high_and_version,
+                guid.clock_seq_high_and_reserved,
+                guid.clock_seq_low,
+                std.fmt.fmtSliceHexLower(&guid.node),
             });
         } else if (comptime std.mem.eql(u8, fmt, "X")) {
-            try writer.print("{X:0>8}-{X:0>4}-{X:0>4}-{}", .{
-                guid.data1,
-                guid.data2,
-                guid.data3,
-                std.fmt.fmtSliceHexUpper(guid.data4),
+            try writer.print("{X:0>8}-{X:0>4}-{X:0>4}-{X:0>2}{X:0>2}-{:0>12}", .{
+                guid.time_low,
+                guid.time_mid,
+                guid.time_high_and_version,
+                guid.clock_seq_high_and_reserved,
+                guid.clock_seq_low,
+                std.fmt.fmtSliceHexUpper(&guid.node),
             });
         } else {
-            @compileError("unsupported format string for Guid.format");
+            std.fmt.invalidFmtError(fmt, guid);
         }
+    }
+
+    pub fn eql(a: Guid, b: Guid) bool {
+        return a.time_low == b.time_low and
+            a.time_mid == b.time_mid and
+            a.time_high_and_version == b.time_high_and_version and
+            a.clock_seq_high_and_reserved == b.clock_seq_high_and_reserved and
+            a.clock_seq_low == b.clock_seq_low and
+            std.mem.eql(u8, &a.node, &b.node);
+    }
+
+    test parse {
+        try std.testing.expectEqual(Guid{
+            .time_low = 0x12345678,
+            .time_mid = 0x9abc,
+            .time_high_and_version = 0xdef0,
+            .clock_seq_high_and_reserved = 0x12,
+            .clock_seq_low = 0x34,
+            .node = [_]u8{ 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0 },
+        }, Guid.parse("12345678-9abc-def0-1234-56789abcdef0"));
+    }
+
+    test format {
+        var buf: [37]u8 = undefined;
+        const res = try std.fmt.bufPrint(&buf, "{x}", .{Guid{
+            .time_low = 0x12345678,
+            .time_mid = 0x9abc,
+            .time_high_and_version = 0xdef0,
+            .clock_seq_high_and_reserved = 0x12,
+            .clock_seq_low = 0x34,
+            .node = [_]u8{ 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0 },
+        }});
+
+        try std.testing.expectEqualSlices(u8, "12345678-9abc-def0-1234-56789abcdef0", res);
+    }
+    test eql {
+        const a = parse("12345678-9abc-def0-1234-56789abcdef0");
+        const b = Guid{
+            .time_low = 0x12345678,
+            .time_mid = 0x9abc,
+            .time_high_and_version = 0xdef0,
+            .clock_seq_high_and_reserved = 0x12,
+            .clock_seq_low = 0x34,
+            .node = [_]u8{ 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0 },
+        };
+        const c = parse("12345678-9abc-def0-1234-56789abcdef1");
+
+        try std.testing.expectEqual(true, eql(a, b));
+        try std.testing.expectEqual(false, eql(a, c));
     }
 };
 
@@ -195,7 +272,16 @@ pub const IpAddress = extern union {
     Ip6: Ip6Address,
 };
 
+pub const EventNotifyFunction = fn (
+    event: Event,
+    context: ?*const anyopaque,
+) callconv(EFIAPI) void;
+
 pub const Status = @import("status.zig").Status;
 
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
+
+test {
+    std.testing.refAllDecls(@This());
+}
